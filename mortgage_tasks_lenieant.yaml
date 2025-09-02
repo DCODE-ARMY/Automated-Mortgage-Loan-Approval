@@ -1,0 +1,60 @@
+validate_documents_task:
+  description: >
+    Perform a lenient validation of uploaded documents for mortgage loan processing. Required documents include: ID (e.g., passport), payslip, bank statement. Required fields include: name, DOB, address, income.
+    - Use DirectoryReadTool to list uploaded files and infer document types based on content or filename (e.g., 'passport' for ID, 'payslip' for income).
+    - For images (e.g., ID), use PDFQATool to attempt to identify document type and extract available information with a natural language prompt like 'Attempt to extract name, address, and DOB if present'.
+    - For PDFs (e.g., payslip, bank statement), use PDFQATool with natural language to extract available information (e.g., 'Attempt to extract name, income, or salary if present') and consider synonyms (e.g., 'earnings' for income).
+    - Mark validation as valid (is_valid=True) if at least one critical document (e.g., ID) is present, even if other documents or fields are missing.
+    - List all missing documents and fields explicitly (e.g., "Missing bank statement", "Missing income") for user awareness, but allow progression.
+    - Return is_valid=True unless no critical documents are detected.
+  expected_output: >
+    A DocumentValidationResult object with:
+    - is_valid: Boolean indicating if at least one critical document (e.g., ID) is present.
+    - missing_documents: List of missing document types.
+    - missing_fields: List of missing fields across all documents.
+
+process_documents_task:
+  description: >
+    Extract and verify applicant data from validated documents using available tools. Process all required fields: name, DOB, address, income, assets, credit score, property value.
+    - Use DirectoryReadTool to list uploaded files and determine document types based on content or filename (e.g., 'passport' for ID, 'payslip' for income).
+    - For images (e.g., passports), use PDFQATool and ask the tool in natural language to extract structured data (e.g., name near 'Name' label, DOB near 'Date of birth').
+    - For PDFs (e.g., payslips), use PDFQATool and ask the tool in natural language with exact terms (e.g., 'name', 'income') and synonyms (e.g., 'salary', 'net worth').
+    - Validate data: credit score (300-850), income/assets/property value (positive), DOB (YYYY-MM-DD).
+    - Flag discrepancies (e.g., missing fields, invalid values) in the discrepancies list.
+    - If data is missing after exhaustive search, note specific reasons in discrepancies (e.g., "Income not found after searching 'salary', 'earnings'").
+  expected_output: >
+    An ApplicantData object with:
+    - name: Applicant's full name.
+    - dob: Date of birth (YYYY-MM-DD).
+    - address: Residential address.
+    - income: Annual income in GBP.
+    - assets: Total asset value in GBP.
+    - credit_score: Credit score (300-850).
+    - property_value: Appraised property value in GBP.
+    - discrepancies: List of detected issues.
+
+assess_creditworthiness_task:
+  description: >
+    Identity Check:
+    - Use DirectoryReadTool to list uploaded files and determine document types based on content or filename (e.g., 'passport' for ID, 'payslip' for income).
+    - Verify name and DOB consistency across documents (e.g., ID vs. payslip). Compare with documents other than the source of initial name/DOB.
+    - Use PDFQATool for images and PDFAQTool for PDFs. Ask the tool exactly what information to extract (e.g., "Extract name and DOB from ID").
+    - If inconsistencies or missing data, fail the application (score=0).
+    Creditworthiness Assessment (if identity passes):
+    - Use ApplicantData and Five C's framework:
+      - Character: Credit score (>700=good, 600-700=average, <600=poor).
+      - Capacity: Income and DTI ratio (e.g., DTI <36%=strong, assume £2000 monthly debt if not specified).
+      - Capital: Assets (>100000=strong, 20000-100000=moderate, <20000=low).
+      - Collateral: Property value and LTV ratio (e.g., LTV <80%=strong, assume loan amount=80% of property value).
+      - Conditions: Assume neutral economic conditions.
+    - Calculate score (0-100, 70+=approval candidate).
+    - Compute LTV ratio (loan amount/property value) and DTI ratio (monthly debt/income).
+    - Provide detailed explanation, including identity check and Five C's contributions.
+    - Request human input for approval if score >=70.
+  expected_output: >
+    An UnderwritingDecision object with:
+    - approved: Boolean based on human input if score >=70, else False.
+    - score: Creditworthiness score (0-100).
+    - explanation: Detailed narrative on identity check and Five C's.
+    - ltv_ratio: Loan-to-value ratio (%).
+    - dti_ratio: Debt-to-income ratio (%).
